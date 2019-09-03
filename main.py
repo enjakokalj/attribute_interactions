@@ -2,16 +2,14 @@ import pandas as pd
 pd.set_option('display.max_rows', 1000)
 pd.set_option('display.max_columns', 1000)
 pd.set_option('display.max_colwidth', -1)
+import numpy as np
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import train_test_split
-
-import xgboost
 from sklearn.metrics import accuracy_score
 
+import xgboost
 import shap
 shap.initjs()
-
-import numpy as np
 
 from mlxtend.preprocessing import TransactionEncoder
 from mlxtend.frequent_patterns import apriori
@@ -22,14 +20,13 @@ def preprocessing(data):
     target_name = data.columns[-1]
     X = data.drop([target_name], axis=1).fillna(data.mean())
     X_cols = X.columns
-
     X_list = X.values.tolist()
     scaler = MinMaxScaler()
+    scaler.fit(X_list)
     X_scaled_list = scaler.transform(X_list)
 
     X = pd.DataFrame(X_scaled_list, columns=X_cols)
     y = data[target_name]
-
     return X, y
 
 
@@ -39,23 +36,11 @@ def model_training(X, y, X_train, y_train):
 
     model = xgboost.train({"learning_rate": 0.01}, xgb_train, 100)
     y_pred = model.predict(xgb_full)
-
-    pred = []
-    for x in y_pred:
-        if x > 0.5:
-            pred.append(1)
-        else:
-            pred.append(0)
-    y_pred = pred
-    print("accuracy score (full set):", accuracy_score(y, y_pred))
+    y_pred = [1 if x > 0.5 else 0 for x in y_pred]
+    print("accuracy score (full data set):", accuracy_score(y, y_pred))
 
     data_conc = pd.concat([X, y], axis=1)
-
-    idxs = []
-    for i in range(len(y)):
-        if y[i] != y_pred[i]:
-            idxs.append(i)
-
+    idxs = [i for i in range(len(y)) if y[i] != y_pred[i]]
     data_conc.drop(data_conc.index[idxs], inplace=True)
     df_conc = data_conc.reset_index(drop=True)
     target_name = df_conc.columns[-1]
@@ -63,7 +48,6 @@ def model_training(X, y, X_train, y_train):
     y = df_conc[target_name]
     X_idxs = df_conc.drop([target_name], axis=1)
     X = X_idxs
-
     return model, X, y
 
 
@@ -77,7 +61,6 @@ def SHAP(model, X, y):
     # concatenating SHAP values and target column
     shap_df = pd.DataFrame(shap_values, columns=X.columns)
     df = pd.concat([shap_df, y], axis=1)
-
     return df
 
 
@@ -114,7 +97,6 @@ def SHAP_discretization(df):
                     y_temp.append("high" + str(X_final[ii]))
         y_final.append(y_temp)
     df_final = y_final
-
     return df_final
 
 
@@ -129,8 +111,8 @@ def association_rules_generator(df_final, target_class):
     df1 = rules.drop(columns=["leverage", "conviction", "antecedent support", "consequent support"])[
         rules['antecedents'].apply(lambda x: not any(y in x for y in [str(x) for x in target_class])) &
         rules['antecedents'].apply(lambda x: not any("low" in y for y in list(x))) &
-        rules['consequents'].apply(lambda x: x in [frozenset(str(x)) for x in target_class]) &
         rules['antecedents'].apply(lambda x: 1 < len(x) <= 3) &
+        rules['consequents'].apply(lambda x: x in [frozenset(str(x)) for x in target_class]) &
         rules['lift'].apply(lambda x: x > 1)
         ]
     df1 = df1.sort_values(by=["lift", "support"], ascending=False).reset_index(drop=True)
@@ -149,5 +131,4 @@ if __name__=='__main__':
     shap_df = SHAP(model, X, y)
     df_final = SHAP_discretization(shap_df)
     results = association_rules_generator(df_final, target_class)
-
     print(results)
